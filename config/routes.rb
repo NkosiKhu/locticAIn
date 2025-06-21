@@ -2,8 +2,16 @@ Rails.application.routes.draw do
   resources :clients
   resources :services
   resources :bookings
+  
+  # Twilio ConversationRelay webhook
+  post '/voice', to: 'voice#voice'
+  post '/sms', to: 'voice#voice'  # Some Twilio configs try SMS endpoint too
+  
   # MCP Streamable HTTP Transport - Single endpoint for all MCP communication
   match '/mcp', to: 'mcp#handle_mcp', via: [:get, :post, :head, :options, :delete]
+
+  # Mount ActionCable server for WebSocket connections
+  mount ActionCable.server => '/cable'
 
   # Define your application routes per the DSL in https://guides.rubyonrails.org/routing.html
 

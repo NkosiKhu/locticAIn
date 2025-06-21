@@ -4,6 +4,12 @@
 <div class="container mx-auto px-4 py-8">
     <h1>MCP Streamable HTTP Test Client</h1>
     <p>Testing MCP Protocol Version 2025-06-18 with proper session management</p>
+    <div class="info-banner">
+        <h2>About This Client</h2>
+        <p>This is a web-based test client for interacting with our Model Context Protocol (MCP) server. 
+        Use this interface to initialize sessions, test tool calls, manage resources, and monitor real-time 
+        server communication streams. Perfect for debugging and exploring MCP server capabilities.</p>
+    </div>
     
     <div class="container">
         <h3>Session Status</h3>
@@ -469,5 +475,22 @@
         }
         .flex-row > * {
             flex: 1;
+        }
+        .info-banner {
+            background: #e7f3ff;
+            border: 1px solid #b3d9ff;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .info-banner h2 {
+            margin: 0 0 10px 0;
+            color: #0066cc;
+            font-size: 18px;
+        }
+        .info-banner p {
+            margin: 0;
+            color: #333;
+            line-height: 1.5;
         }
     </style>
