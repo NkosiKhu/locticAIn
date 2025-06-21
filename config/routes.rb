@@ -3,7 +3,7 @@ Rails.application.routes.draw do
   resources :services
   resources :bookings
   # MCP Streamable HTTP Transport - Single endpoint for all MCP communication
-  match '/mcp', to: 'mcp#handle_mcp', via: [:get, :post, :delete]
+  match '/mcp', to: 'mcp#handle_mcp', via: [:get, :post, :head, :options, :delete]
 
   # Define your application routes per the DSL in https://guides.rubyonrails.org/routing.html
 

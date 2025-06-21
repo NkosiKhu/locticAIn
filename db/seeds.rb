@@ -16,86 +16,72 @@ Booking.destroy_all
 Client.destroy_all
 Service.destroy_all
 
-# Create Services
-puts "Creating services..."
+# Create salon services
 services_data = [
   {
-    name: "Women's Haircut & Style",
-    description: "Professional haircut with wash, cut, and styling. Includes consultation on best style for your face shape.",
-    duration_minutes: 60,
-    price_cents: 8500, # $85.00
+    name: "Basic Haircut",
+    description: "Classic cut and style",
+    duration_minutes: 45,
+    price_cents: 4500,
     active: true
   },
   {
-    name: "Men's Haircut",
-    description: "Classic men's haircut including wash, cut, and basic styling.",
+    name: "Style Cut & Blow Dry",
+    description: "Precision cut with professional styling",
+    duration_minutes: 60,
+    price_cents: 6500,
+    active: true
+  },
+  {
+    name: "Wash & Blow Dry",
+    description: "Shampoo, condition, and style",
     duration_minutes: 30,
-    price_cents: 4500, # $45.00
+    price_cents: 3500,
     active: true
   },
   {
     name: "Hair Color - Full",
-    description: "Complete hair coloring service including consultation, color application, and styling.",
-    duration_minutes: 180,
-    price_cents: 15000, # $150.00
+    description: "Complete hair coloring service",
+    duration_minutes: 120,
+    price_cents: 12000,
+    active: true
+  },
+  {
+    name: "Hair Color - Touch Up",
+    description: "Root touch-up and color refresh",
+    duration_minutes: 90,
+    price_cents: 8500,
     active: true
   },
   {
     name: "Highlights",
-    description: "Partial or full highlights with foil technique. Includes toning and styling.",
+    description: "Foil highlights or balayage",
     duration_minutes: 150,
-    price_cents: 12000, # $120.00
-    active: true
-  },
-  {
-    name: "Blowout & Style",
-    description: "Professional wash, blow dry, and styling without a cut.",
-    duration_minutes: 45,
-    price_cents: 5500, # $55.00
+    price_cents: 15000,
     active: true
   },
   {
     name: "Deep Conditioning Treatment",
-    description: "Intensive hair treatment to repair and moisturize damaged hair.",
-    duration_minutes: 30,
-    price_cents: 3500, # $35.00
+    description: "Restorative hair treatment",
+    duration_minutes: 45,
+    price_cents: 5500,
     active: true
   },
   {
-    name: "Perm",
-    description: "Traditional perm service including consultation, perm application, and styling.",
-    duration_minutes: 120,
-    price_cents: 9500, # $95.00
+    name: "Updo Styling",
+    description: "Special event hairstyling",
+    duration_minutes: 60,
+    price_cents: 7500,
     active: true
-  },
-  {
-    name: "Hair Extensions Application",
-    description: "Professional application of clip-in or semi-permanent hair extensions.",
-    duration_minutes: 90,
-    price_cents: 18000, # $180.00
-    active: true
-  },
-  {
-    name: "Bridal Hair & Makeup",
-    description: "Complete bridal hair styling and makeup application for your special day.",
-    duration_minutes: 180,
-    price_cents: 25000, # $250.00
-    active: true
-  },
-  {
-    name: "Hair Wash & Basic Dry",
-    description: "Simple hair wash and basic blow dry service.",
-    duration_minutes: 20,
-    price_cents: 2500, # $25.00
-    active: false # This one is inactive for variety
   }
 ]
 
-services = services_data.map do |service_attrs|
+services_data.each do |service_attrs|
   Service.create!(service_attrs)
+  puts "Created service: #{service_attrs[:name]}"
 end
 
-puts "Created #{services.count} services"
+puts "Seeded #{Service.count} services"
 
 # Create Clients
 puts "Creating clients..."
@@ -189,7 +175,7 @@ bookings_data = []
 # Create some past completed bookings
 15.times do
   client = clients.sample
-  service = services.select(&:active).sample
+  service = Service.select(&:active).sample
   start_time = random_time_in_range(30, 0) # Last 30 days
   
   bookings_data << {
@@ -205,7 +191,7 @@ end
 # Create some upcoming scheduled bookings
 10.times do
   client = clients.sample
-  service = services.select(&:active).sample
+  service = Service.select(&:active).sample
   start_time = random_time_in_range(0, 14) # Next 2 weeks
   
   bookings_data << {
@@ -221,7 +207,7 @@ end
 # Create a few cancelled and no-show bookings
 5.times do
   client = clients.sample
-  service = services.select(&:active).sample
+  service = Service.select(&:active).sample
   start_time = random_time_in_range(7, 0) # Last week
   
   bookings_data << {
@@ -237,13 +223,13 @@ end
 # Create some specific scenario bookings
 # Bridal client with multiple appointments
 bridal_client = Client.find_by(name: "Lisa Park")
-bridal_service = Service.find_by(name: "Bridal Hair & Makeup")
+bridal_service = Service.find_by(name: "Updo Styling")
 trial_date = 2.weeks.from_now.beginning_of_day + 10.hours
 wedding_date = 1.month.from_now.beginning_of_day + 8.hours
 
 bookings_data << {
   client: bridal_client,
-  service: Service.find_by(name: "Women's Haircut & Style"),
+  service: Service.find_by(name: "Basic Haircut"),
   start_time: trial_date,
   end_time: trial_date + 60.minutes,
   status: "scheduled",
@@ -261,7 +247,7 @@ bookings_data << {
 
 # Regular client with recurring appointments
 regular_client = Client.find_by(name: "Michael Chen")
-mens_cut = Service.find_by(name: "Men's Haircut")
+mens_cut = Service.find_by(name: "Basic Haircut")
 
 # Past appointments
 3.times do |i|

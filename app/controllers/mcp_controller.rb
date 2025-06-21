@@ -9,14 +9,29 @@ class McpController < ApplicationController
   
   # Main MCP endpoint handler
   def handle_mcp
+    # Log ALL incoming requests with full details
+    Rails.logger.info "=== INCOMING #{request.method} REQUEST ==="
+    Rails.logger.info "User-Agent: #{request.headers['User-Agent']}"
+    Rails.logger.info "Content-Type: #{request.headers['Content-Type']}"
+    Rails.logger.info "Accept: #{request.headers['Accept']}"
+    Rails.logger.info "MCP-Protocol-Version: #{request.headers['MCP-Protocol-Version']}"
+    Rails.logger.info "Mcp-Session-Id: #{request.headers['Mcp-Session-Id']}"
+    Rails.logger.info "Origin: #{request.headers['Origin']}"
+    Rails.logger.info "Request body size: #{request.body.size}" if request.body
+    
     case request.method
     when 'POST'
       handle_post_request
     when 'GET'
       handle_get_request
+    when 'HEAD'
+      handle_head_request
+    when 'OPTIONS'
+      handle_options_request
     when 'DELETE'
       handle_delete_request
     else
+      Rails.logger.info "Unsupported method: #{request.method}"
       head :method_not_allowed
     end
   rescue => e
@@ -37,11 +52,16 @@ class McpController < ApplicationController
 
   # Handle POST requests (client sending messages to server)
   def handle_post_request
+    Rails.logger.info "=== PROCESSING POST REQUEST ==="
+    
     # validate_protocol_version!
     return unless validate_accept_headers_for_post!
     
     message = parse_jsonrpc_message
     return unless message
+    
+    Rails.logger.info "JSON-RPC Message: #{message.to_json}"
+    Rails.logger.info "Method: #{message['method']}, ID: #{message['id']}"
     
     session_id = extract_or_create_session(message)
     return unless session_id
@@ -88,6 +108,34 @@ class McpController < ApplicationController
       head :bad_request
       return
     end
+  end
+
+  # Handle HEAD requests (endpoint health check)
+  def handle_head_request
+    Rails.logger.info "HEAD request - MCP endpoint health check"
+    
+    # Return the same headers as a GET request would, but no body
+    response.headers['Content-Type'] = 'application/json'
+    response.headers['Accept'] = 'application/json, text/event-stream'
+    response.headers['MCP-Protocol-Version'] = PROTOCOL_VERSION
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, HEAD, DELETE, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Accept, MCP-Protocol-Version, Mcp-Session-Id'
+    
+    head :ok
+  end
+
+  # Handle OPTIONS requests (CORS preflight)
+  def handle_options_request
+    Rails.logger.info "OPTIONS request - CORS preflight check"
+    
+    # CORS preflight response
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, HEAD, DELETE, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Accept, MCP-Protocol-Version, Mcp-Session-Id, Authorization'
+    response.headers['Access-Control-Max-Age'] = '3600'
+    
+    head :ok
   end
 
   # Handle DELETE requests (client terminating session)
@@ -177,21 +225,28 @@ class McpController < ApplicationController
       }.to_json)
       
       # Keep stream alive and send server messages
-      heartbeat_count = 0
+      start_time = Time.current
+      last_heartbeat = start_time
+      
       loop do
         # Check for server messages to send
         send_pending_server_messages(session_id)
         
-        # Send heartbeat
-        heartbeat_count += 1
-        Rails.logger.info "Sending heartbeat ##{heartbeat_count} to session #{session_id}"
-        sse_write('heartbeat', {
-          type: 'heartbeat',
-          count: heartbeat_count,
-          timestamp: Time.current.iso8601
-        }.to_json)
+        # Check if it's time for a heartbeat (every 30 seconds, not blocking)
+        current_time = Time.current
+        if current_time - last_heartbeat >= 30
+          Rails.logger.info "Sending keep-alive heartbeat to session #{session_id}"
+          sse_write('heartbeat', {
+            type: 'heartbeat',
+            timestamp: current_time.iso8601,
+            session_id: session_id,
+            uptime_seconds: (current_time - start_time).to_i
+          }.to_json)
+          last_heartbeat = current_time
+        end
         
-        sleep 30
+        # Very short sleep to prevent CPU spinning, but stay responsive
+        sleep 0.1
       end
       
     rescue IOError, Errno::ECONNRESET => e
@@ -216,19 +271,30 @@ class McpController < ApplicationController
         timestamp: Time.current.iso8601
       }.to_json)
       
-      # Keep stream alive with minimal heartbeats
-      heartbeat_count = 0
+      # Keep the connection open without blocking
+      # The client will send POST requests which will be handled by separate controller actions
+      Rails.logger.info "SSE stream established, waiting for client requests..."
+      
+      # Use a simple non-blocking approach - just keep the stream alive
+      # Send occasional keep-alive messages but don't block for long periods
+      start_time = Time.current
+      last_heartbeat = start_time
+      
       loop do
-        # Send heartbeat
-        heartbeat_count += 1
-        Rails.logger.info "Sending generic heartbeat ##{heartbeat_count}"
-        sse_write('heartbeat', {
-          type: 'heartbeat',
-          count: heartbeat_count,
-          timestamp: Time.current.iso8601
-        }.to_json)
+        # Check if it's time for a heartbeat (every 30 seconds, not blocking)
+        current_time = Time.current
+        if current_time - last_heartbeat >= 30
+          Rails.logger.info "Sending keep-alive heartbeat"
+          sse_write('heartbeat', {
+            type: 'heartbeat',
+            timestamp: current_time.iso8601,
+            uptime_seconds: (current_time - start_time).to_i
+          }.to_json)
+          last_heartbeat = current_time
+        end
         
-        sleep 30
+        # Very short sleep to prevent CPU spinning, but stay responsive
+        sleep 0.1
       end
       
     rescue IOError, Errno::ECONNRESET => e
@@ -258,10 +324,22 @@ class McpController < ApplicationController
   def extract_or_create_session(message)
     session_id = extract_session_id
     
-    # For initialize requests, create new session if none provided
+    # For initialize requests, ensure session exists (create if needed)
     if message['method'] == 'initialize'
       if session_id.nil?
+        # No session ID provided, create a new one
         session_id = McpSession.create
+      else
+        # Session ID provided by client, create it in cache if it doesn't exist
+        unless McpSession.exists?(session_id)
+          session_data = {
+            created_at: Time.current.iso8601,
+            initialized: false,
+            protocol_version: nil
+          }
+          Rails.cache.write("mcp_session_#{session_id}", session_data, expires_in: 1.hour)
+          Rails.logger.info "Created MCP session from client ID: #{session_id}"
+        end
       end
       
       # Mark session as initialized
@@ -335,9 +413,11 @@ class McpController < ApplicationController
 
   def setup_sse_headers
     response.headers['Content-Type'] = 'text/event-stream'
-    response.headers['Cache-Control'] = 'no-cache'
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
     response.headers['Connection'] = 'keep-alive'
-    response.headers['X-Accel-Buffering'] = 'no'
+    response.headers['X-Accel-Buffering'] = 'no'  # Disable nginx buffering
+    response.headers['X-Proxy-Buffering'] = 'no'  # Disable proxy buffering
+    response.headers['Transfer-Encoding'] = 'chunked'  # Enable chunked transfer
     response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Accept, MCP-Protocol-Version, Mcp-Session-Id'
   end
@@ -348,9 +428,19 @@ class McpController < ApplicationController
     Rails.logger.info "SSE SEND -> data: #{data}"
     response.stream.write("event: #{event_type}\n")
     response.stream.write("data: #{data}\n\n")
-    response.stream.flush if response.stream.respond_to?(:flush)
+    
+    # Force immediate flush to prevent buffering
+    if response.stream.respond_to?(:flush)
+      response.stream.flush
+    end
+    
+    # Additional flush for Rails ActionController::Live
+    if response.stream.respond_to?(:close_write)
+      # Don't close, just ensure data is sent immediately
+    end
   rescue IOError => e
     Rails.logger.error "Failed to write to SSE stream: #{e.message}"
+    raise # Re-raise to trigger cleanup
   end
 
   def sse_write_error(message)
@@ -422,17 +512,101 @@ class McpController < ApplicationController
   def handle_tools_list(params, id)
     tools = [
       {
-        name: "get_client",
-        description: "Retrieve client information from the database",
+        name: "find_client",
+        description: "Search for existing client by first and last name",
         inputSchema: {
           type: "object",
           properties: {
-            email: {
+            first_name: {
               type: "string",
-              description: "The email of the client to retrieve"
+              description: "Client's first name"
+            },
+            last_name: {
+              type: "string", 
+              description: "Client's last name"
             }
           },
-          required: ["email"]
+          required: ["first_name", "last_name"]
+        }
+      },
+      {
+        name: "create_client",
+        description: "Create a new client record",
+        inputSchema: {
+          type: "object",
+          properties: {
+            name: {
+              type: "string",
+              description: "Full name of the client"
+            },
+            phone: {
+              type: "string",
+              description: "Phone number"
+            }
+          },
+          required: ["name"]
+        }
+      },
+      {
+        name: "list_services",
+        description: "Get all available services",
+        inputSchema: {
+          type: "object",
+          properties: {}
+        }
+      },
+      {
+        name: "get_client_history",
+        description: "Get past bookings for a client",
+        inputSchema: {
+          type: "object",
+          properties: {
+            client_id: {
+              type: "integer",
+              description: "ID of the client"
+            }
+          },
+          required: ["client_id"]
+        }
+      },
+      {
+        name: "check_availability",
+        description: "Find the next available time slot for a service on or after a preferred date",
+        inputSchema: {
+          type: "object",
+          properties: {
+            service_id: {
+              type: "integer",
+              description: "ID of the service"
+            },
+            preferred_date: {
+              type: "string",
+              description: "Preferred date in YYYY-MM-DD format (optional, defaults to tomorrow)"
+            }
+          },
+          required: ["service_id"]
+        }
+      },
+      {
+        name: "create_booking",
+        description: "Create a new booking",
+        inputSchema: {
+          type: "object",
+          properties: {
+            client_id: {
+              type: "integer",
+              description: "ID of the client"
+            },
+            service_id: {
+              type: "integer",
+              description: "ID of the service"
+            },
+            start_time: {
+              type: "string",
+              description: "Start time in ISO datetime format"
+            }
+          },
+          required: ["client_id", "service_id", "start_time"]
         }
       }
     ]
@@ -445,8 +619,23 @@ class McpController < ApplicationController
     arguments = params["arguments"] || {}
 
     case tool_name
-    when "get_client"
-      result = get_client_tool(arguments)
+    when "find_client"
+      result = find_client_tool(arguments)
+      jsonrpc_success({ content: [{ type: "text", text: result }] }, id)
+    when "create_client"
+      result = create_client_tool(arguments)
+      jsonrpc_success({ content: [{ type: "text", text: result }] }, id)
+    when "list_services"
+      result = list_services_tool(arguments)
+      jsonrpc_success({ content: [{ type: "text", text: result }] }, id)
+    when "get_client_history"
+      result = get_client_history_tool(arguments)
+      jsonrpc_success({ content: [{ type: "text", text: result }] }, id)
+    when "check_availability"
+      result = check_availability_tool(arguments)
+      jsonrpc_success({ content: [{ type: "text", text: result }] }, id)
+    when "create_booking"
+      result = create_booking_tool(arguments)
       jsonrpc_success({ content: [{ type: "text", text: result }] }, id)
     else
       jsonrpc_error(-32601, "Tool not found", id)
@@ -536,19 +725,192 @@ class McpController < ApplicationController
     end
   end
 
-  # Tool implementations
-  def get_client_tool(arguments)
-    email = arguments["email"]
-    client = Client.find_by(email: email)
+  # Salon booking tool implementations
+  def find_client_tool(arguments)
+    first_name = arguments["first_name"].strip
+    last_name = arguments["last_name"].strip
     
-    return "Client with email #{email} not found" unless client
+    # Search by first and last name using ActiveRecord (case-insensitive)
+    # Try "First Last" and "Last First" patterns
+    client = Client.where("LOWER(name) LIKE LOWER(?)", "%#{first_name}%#{last_name}%")
+                   .or(Client.where("LOWER(name) LIKE LOWER(?)", "%#{last_name}%#{first_name}%"))
+                   .first
+    
+    if client
+      {
+        found: true,
+        client: {
+          id: client.id,
+          name: client.name,
+          phone: client.phone,
+          total_bookings: client.bookings.count,
+          last_visit: client.bookings.maximum(:start_time)&.strftime("%B %d, %Y")
+        }
+      }.to_json
+    else
+      { 
+        found: false, 
+        message: "No client found matching '#{first_name} #{last_name}'" 
+      }.to_json
+    end
+  end
+
+  def create_client_tool(arguments)
+    client = Client.create!(
+      name: arguments["name"],
+      phone: arguments["phone"]
+    )
     
     {
-      id: client.id,
-      name: client.name,
-      email: client.email,
-      created_at: client.created_at
+      success: true,
+      client: {
+        id: client.id,
+        name: client.name,
+        phone: client.phone
+      },
+      message: "Client #{client.name} created successfully"
     }.to_json
+  rescue => e
+    { success: false, error: e.message }.to_json
+  end
+
+  def list_services_tool(arguments)
+    services = Service.where(active: true).order(:name)
+    
+    {
+      services: services.map do |service|
+        {
+          id: service.id,
+          name: service.name,
+          description: service.description,
+          duration_minutes: service.duration_minutes,
+          price: "$#{service.price_cents / 100}",
+          duration_display: "#{service.duration_minutes} minutes"
+        }
+      end
+    }.to_json
+  end
+
+  def get_client_history_tool(arguments)
+    client = Client.find(arguments["client_id"])
+    bookings = client.bookings.includes(:service).order(start_time: :desc).limit(10)
+    
+    {
+      client_name: client.name,
+      total_bookings: client.bookings.count,
+      recent_bookings: bookings.map do |booking|
+        {
+          id: booking.id,
+          service_name: booking.service.name,
+          date: booking.start_time.strftime("%B %d, %Y"),
+          time: booking.start_time.strftime("%I:%M %p"),
+          status: booking.status,
+          notes: booking.notes
+        }
+      end
+    }.to_json
+  rescue ActiveRecord::RecordNotFound
+    { error: "Client not found" }.to_json
+  end
+
+  def check_availability_tool(arguments)
+    service = Service.find(arguments["service_id"])
+    preferred_date = arguments["preferred_date"] ? Date.parse(arguments["preferred_date"]) : Date.tomorrow
+    
+    # Skip past dates
+    check_date = preferred_date < Date.tomorrow ? Date.tomorrow : preferred_date
+    
+    # Define business hours (9 AM to 6 PM)
+    day_start = check_date.beginning_of_day + 9.hours
+    day_end = check_date.beginning_of_day + 18.hours
+    
+    # Get existing bookings for this date
+    existing_bookings = Booking.where(start_time: day_start..day_end).order(:start_time)
+    
+    # Find first available slot
+    current_time = day_start
+    while current_time + service.duration_minutes.minutes <= day_end
+      slot_end = current_time + service.duration_minutes.minutes
+      
+      # Check if this slot conflicts with existing bookings
+      conflict = existing_bookings.any? do |booking|
+        current_time < booking.end_time && slot_end > booking.start_time
+      end
+      
+      unless conflict
+        # Found an available slot - return it
+        return {
+          success: true,
+          service_name: service.name,
+          service_duration: "#{service.duration_minutes} minutes",
+          recommended_slot: {
+            date: check_date.strftime("%A, %B %d, %Y"),
+            start_time: current_time.strftime("%I:%M %p"),
+            end_time: slot_end.strftime("%I:%M %p"),
+            iso_start_time: current_time.iso8601
+          }
+        }.to_json
+      end
+      
+      current_time += 30.minutes
+    end
+    
+    # No slots available on preferred date - try next day
+    next_day = check_date + 1.day
+    if next_day <= Date.current + 7.days # Only check up to a week ahead
+      return check_availability_tool({
+        "service_id" => arguments["service_id"],
+        "preferred_date" => next_day.strftime("%Y-%m-%d")
+      })
+    end
+    
+    # No availability found
+    {
+      success: false,
+      message: "Sorry, no availability found in the next week. Please try a different time period."
+    }.to_json
+  rescue ActiveRecord::RecordNotFound
+    { error: "Service not found" }.to_json
+  end
+
+  def create_booking_tool(arguments)
+    client = Client.find(arguments["client_id"])
+    service = Service.find(arguments["service_id"])
+    start_time = Time.parse(arguments["start_time"])
+    end_time = start_time + service.duration_minutes.minutes
+    
+    # Double-check availability using proper overlap detection
+    # A booking overlaps if it starts before our booking ends AND ends after our booking starts
+    conflict = Booking.where(start_time: ...end_time)
+                     .where("end_time > ?", start_time)
+                     .exists?
+    
+    if conflict
+      return { success: false, error: "Time slot no longer available" }.to_json
+    end
+    
+    booking = Booking.create!(
+      client: client,
+      service: service,
+      start_time: start_time,
+      end_time: end_time,
+      status: 'confirmed'
+    )
+    
+    {
+      success: true,
+      booking: {
+        id: booking.id,
+        client_name: client.name,
+        service_name: service.name,
+        date: start_time.strftime("%A, %B %d, %Y"),
+        time: "#{start_time.strftime('%I:%M %p')} - #{end_time.strftime('%I:%M %p')}",
+        status: booking.status
+      },
+      message: "Booking confirmed for #{client.name}"
+    }.to_json
+  rescue => e
+    { success: false, error: e.message }.to_json
   end
 
   # JSON-RPC response helpers
