@@ -1,0 +1,97 @@
+<tr class="hover:bg-gray-50 border-b border-gray-200">
+  <td class="px-6 py-4 whitespace-nowrap">
+    <div class="text-sm font-medium text-gray-900">
+      <%= booking.client&.name || "No Client" %>
+    </div>
+    <div class="text-sm text-gray-500">
+      <%= booking.client&.email %>
+    </div>
+  </td>
+  
+  <td class="px-6 py-4 whitespace-nowrap">
+    <div class="text-sm font-medium text-gray-900">
+      <%= booking.service&.name || "No Service" %>
+    </div>
+    <div class="text-sm text-gray-500">
+      <% if booking.service&.duration_minutes %>
+        <%= booking.service.duration_minutes %> min
+      <% end %>
+    </div>
+  </td>
+  
+  <td class="px-6 py-4 whitespace-nowrap">
+    <div class="text-sm text-gray-900">
+      <% if booking.start_time %>
+        <%= booking.start_time.strftime("%m/%d/%Y") %>
+      <% else %>
+        Not scheduled
+      <% end %>
+    </div>
+    <div class="text-sm text-gray-500">
+      <% if booking.start_time %>
+        <%= booking.start_time.strftime("%l:%M %p") %>
+      <% end %>
+    </div>
+  </td>
+  
+  <td class="px-6 py-4 whitespace-nowrap">
+    <div class="text-sm text-gray-900">
+      <% if booking.end_time %>
+        <%= booking.end_time.strftime("%l:%M %p") %>
+      <% else %>
+        TBD
+      <% end %>
+    </div>
+  </td>
+  
+  <td class="px-6 py-4 whitespace-nowrap">
+    <% if booking.status.present? %>
+      <% case booking.status.downcase %>
+      <% when 'confirmed' %>
+        <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
+          Confirmed
+        </span>
+      <% when 'pending' %>
+        <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">
+          Pending
+        </span>
+      <% when 'cancelled' %>
+        <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800">
+          Cancelled
+        </span>
+      <% when 'completed' %>
+        <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
+          Completed
+        </span>
+      <% else %>
+        <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800">
+          <%= booking.status.capitalize %>
+        </span>
+      <% end %>
+    <% else %>
+      <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800">
+        No Status
+      </span>
+    <% end %>
+  </td>
+  
+  <td class="px-6 py-4">
+    <div class="text-sm text-gray-900 max-w-xs">
+      <%= truncate(booking.notes, length: 50) if booking.notes.present? %>
+    </div>
+  </td>
+  
+  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+    <%= booking.created_at.strftime("%m/%d/%Y") %>
+  </td>
+  
+  <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+    <div class="flex justify-end space-x-2">
+      <%= link_to "View", booking_path(booking), class: "text-indigo-600 hover:text-indigo-900" %>
+      <%= link_to "Edit", edit_booking_path(booking), class: "text-indigo-600 hover:text-indigo-900" %>
+      <%= link_to "Delete", booking_path(booking), method: :delete, 
+          confirm: "Are you sure?", 
+          class: "text-red-600 hover:text-red-900" %>
+    </div>
+  </td>
+</tr> 

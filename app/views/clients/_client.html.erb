@@ -1,0 +1,49 @@
+<div class="bg-white shadow-md rounded-lg p-6 border border-gray-200 hover:shadow-lg transition-shadow duration-200">
+  <div class="flex justify-between items-start mb-4">
+    <div class="flex-1">
+      <h3 class="text-lg font-semibold text-gray-900">
+        <%= client.name.present? ? client.name : "No Name" %>
+      </h3>
+      <div class="mt-2 space-y-1">
+        <% if client.email.present? %>
+          <p class="text-sm text-gray-600 flex items-center">
+            <svg class="w-4 h-4 mr-2 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z"></path>
+              <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z"></path>
+            </svg>
+            <%= client.email %>
+          </p>
+        <% end %>
+        
+        <% if client.phone.present? %>
+          <p class="text-sm text-gray-600 flex items-center">
+            <svg class="w-4 h-4 mr-2 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z"></path>
+            </svg>
+            <%= client.phone %>
+          </p>
+        <% end %>
+      </div>
+    </div>
+    
+    <div class="flex flex-col items-end">
+      <span class="text-xs text-gray-500">
+        Created: <%= client.created_at.strftime("%m/%d/%Y") %>
+      </span>
+    </div>
+  </div>
+  
+  <% if client.notes.present? %>
+    <div class="mt-4 p-3 bg-gray-50 rounded-md">
+      <p class="text-sm text-gray-700">
+        <span class="font-medium text-gray-900">Notes:</span>
+        <%= truncate(client.notes, length: 150) %>
+      </p>
+    </div>
+  <% end %>
+  
+  <div class="mt-4 flex justify-end space-x-2">
+    <%= link_to "View", client_path(client), class: "inline-flex items-center px-3 py-1.5 border border-gray-300 text-xs font-medium rounded text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500" %>
+    <%= link_to "Edit", edit_client_path(client), class: "inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500" %>
+  </div>
+</div> 
